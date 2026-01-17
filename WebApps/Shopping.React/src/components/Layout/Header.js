@@ -1,23 +1,38 @@
-import React, { useState } from "react";
-import { Link } from "react-router-dom";
+import React, { useState, useRef, useEffect } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../../contexts/AuthContext";
 import "./Header.css";
 
 const Header = () => {
-  const { user, isAuthenticated, logout } = useAuth();
+  const { user, isAuthenticated, logout, loading, getUserRoles } = useAuth();
   const [showUserMenu, setShowUserMenu] = useState(false);
+  const userMenuRef = useRef(null);
+  const navigate = useNavigate();
 
-  // Debug: Check authentication state
-  const authState = isAuthenticated();
-  console.log("🏠 Header: Auth state -", {
-    hasUser: !!user,
-    isAuth: authState,
-    userName: user?.username,
-  });
+  // Close user menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (userMenuRef.current && !userMenuRef.current.contains(event.target)) {
+        setShowUserMenu(false);
+      }
+    };
 
-  const handleLogout = () => {
-    logout();
-    setShowUserMenu(false);
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const isAuth = isAuthenticated();
+  const userRoles = getUserRoles();
+  const isAdmin = userRoles.includes("admin");
+
+  const handleLogout = async () => {
+    try {
+      await logout();
+      setShowUserMenu(false);
+      navigate("/", { replace: true });
+    } catch (error) {
+      console.error("Logout error:", error);
+    }
   };
 
   return (
@@ -36,7 +51,7 @@ const Header = () => {
               🎁 Oyuncaklar
             </Link>
 
-            {isAuthenticated() ? (
+            {isAuth && (
               <>
                 <Link to="/cart" className="nav-link">
                   🛒 Sepetim
@@ -45,48 +60,101 @@ const Header = () => {
                   📦 Siparişlerim
                 </Link>
               </>
-            ) : null}
+            )}
+
+            {isAuth && isAdmin && (
+              <Link to="/admin" className="nav-link admin-link">
+                ⚙️ Yönetim
+              </Link>
+            )}
 
             {process.env.NODE_ENV === "development" && (
               <>
-                <Link to="/debug" className="nav-link debug-link">
-                  🔧 Debug
+                <Link to="/auth-debug" className="nav-link debug-link">
+                  🔍 Auth
                 </Link>
-                <Link to="/jwt-debug" className="nav-link debug-link">
-                  🔑 JWT Debug
-                </Link>
+                {isAuth && (
+                  <>
+                    <Link to="/debug" className="nav-link debug-link">
+                      🔧 Debug
+                    </Link>
+                    <Link to="/jwt-debug" className="nav-link debug-link">
+                      🔑 JWT
+                    </Link>
+                  </>
+                )}
               </>
             )}
           </nav>
 
           <div className="auth-section">
-            {isAuthenticated() ? (
-              <div className="user-menu">
+            {loading ? (
+              <div className="loading-auth">🔄</div>
+            ) : isAuth ? (
+              <div className="user-menu" ref={userMenuRef}>
                 <button
-                  className="user-button"
+                  className={`user-button ${isAdmin ? "admin-user" : ""}`}
                   onClick={() => setShowUserMenu(!showUserMenu)}
                 >
-                  👤 {user?.firstName || user?.username}
+                  {isAdmin ? "👑" : "👤"}{" "}
+                  {user?.firstName ||
+                    user?.name ||
+                    user?.username ||
+                    "Kullanıcı"}
+                  <span className="dropdown-arrow">▼</span>
                 </button>
 
                 {showUserMenu && (
                   <div className="user-dropdown">
                     <div className="user-info">
-                      <strong>
-                        {user?.firstName} {user?.lastName}
-                      </strong>
-                      <span>{user?.email}</span>
+                      <div className="user-name">
+                        {user?.firstName && user?.lastName
+                          ? `${user.firstName} ${user.lastName}`
+                          : user?.name || user?.username || "Kullanıcı"}
+                      </div>
+                      <div className="user-email">{user?.email || ""}</div>
+                      {userRoles.length > 0 && (
+                        <div className="user-roles">
+                          {userRoles.map((role) => (
+                            <span key={role} className={`role-badge ${role}`}>
+                              {role === "admin" ? "👑" : "👤"} {role}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                      <div className="user-login-time">
+                        Giriş:{" "}
+                        {user?.loginTime
+                          ? new Date(user.loginTime).toLocaleTimeString()
+                          : ""}
+                      </div>
                     </div>
                     <hr />
-                    <button onClick={handleLogout} className="logout-btn">
-                      🚪 Çıkış Yap
-                    </button>
+                    <div className="user-actions">
+                      <Link
+                        to="/profile"
+                        className="user-action-link"
+                        onClick={() => setShowUserMenu(false)}
+                      >
+                        👤 Profil
+                      </Link>
+                      <Link
+                        to="/settings"
+                        className="user-action-link"
+                        onClick={() => setShowUserMenu(false)}
+                      >
+                        ⚙️ Ayarlar
+                      </Link>
+                      <button onClick={handleLogout} className="logout-btn">
+                        🚪 Çıkış Yap
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>
             ) : (
               <div className="auth-links">
-                <Link to="/login" className="auth-link">
+                <Link to="/login" className="auth-link login">
                   🔑 Giriş
                 </Link>
                 <Link to="/register" className="auth-link register">

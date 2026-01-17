@@ -1,5 +1,7 @@
 using HealthChecks.UI.Client;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.IdentityModel.Tokens;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -22,6 +24,50 @@ builder.Services.AddMarten(opts =>
 
 // Note: InitializeMartenWith moved to runtime for better error handling
 
+//Authentication & Authorization (for admin product management)
+// Clear default claim mappings to preserve original JWT claims
+Microsoft.IdentityModel.JsonWebTokens.JsonWebTokenHandler.DefaultInboundClaimTypeMap.Clear();
+
+builder.Services.AddAuthentication("Bearer")
+    .AddJwtBearer("Bearer", options =>
+    {
+        // Use configuration-based authority to support both development and Docker environments
+        var authority = builder.Configuration["IdentityServerSettings:Authority"] ?? "http://localhost:6007";
+        options.Authority = authority;
+        options.RequireHttpsMetadata = false;
+        options.TokenValidationParameters = new Microsoft.IdentityModel.Tokens.TokenValidationParameters
+        {
+            ValidateAudience = false,
+            ValidateIssuer = true,
+            ValidIssuer = authority,
+            ValidateLifetime = true,
+            ClockSkew = TimeSpan.FromMinutes(5),
+            NameClaimType = "preferred_username", // Map username claim
+            RoleClaimType = "role" // Map role claim
+        };
+
+        // Preserve original claim names
+        options.MapInboundClaims = false;
+    });
+
+builder.Services.AddAuthorization(options =>
+{
+    options.AddPolicy("AdminOnly", policy =>
+        policy.RequireRole("admin"));
+});
+
+//CORS for React app
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("AllowShoppingApp", policy =>
+    {
+        policy.WithOrigins("http://localhost:3000", "http://localhost:6006")
+              .AllowAnyMethod()
+              .AllowAnyHeader()
+              .AllowCredentials();
+    });
+});
+
 builder.Services.AddExceptionHandler<CustomExceptionHandler>();
 
 builder.Services.AddHealthChecks()
@@ -30,8 +76,11 @@ builder.Services.AddHealthChecks()
 var app = builder.Build();
 
 // Configure the HTTP request pipeline.
-app.MapCarter();
+app.UseCors("AllowShoppingApp");
+app.UseAuthentication();
+app.UseAuthorization();
 
+app.MapCarter();
 app.UseExceptionHandler(options => { });
 
 app.UseHealthChecks("/health",
